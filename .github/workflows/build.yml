@@ -1,0 +1,90 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26 or newer
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null \
+            | grep -E '/Xcode_[0-9]+(\.[0-9]+)*\.app$' \
+            | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then XCODE=/Applications/Xcode.app; fi
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          MAJOR=$(xcodebuild -version | head -1 | sed -E 's/Xcode ([0-9]+).*/\1/')
+          if [ "$MAJOR" -lt 26 ]; then
+            echo "::error::Xcode 26 or newer is required (found $MAJOR)."
+            exit 1
+          fi
+
+      - name: Install XcodeGen and ldid
+        run: brew install xcodegen ldid
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Apex.xcodeproj \
+            -scheme Apex \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log
+
+      - name: Show compile errors
+        if: failure()
+        run: |
+          {
+            echo "## Compile errors"
+            echo '```'
+            grep -E "error:" build.log | sort -u | head -80 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Package IPA
+        run: |
+          APP=build/Build/Products/Release-iphoneos/Apex.app
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          # Fake-sign with entitlements so AltStore sees the App Group.
+          WIDGET=Payload/Apex.app/PlugIns/ApexWidget.appex
+          if [ -d "$WIDGET" ]; then
+            ldid -SConfig/ApexWidget.entitlements "$WIDGET/ApexWidget"
+          fi
+          ldid -SConfig/Apex.entitlements Payload/Apex.app/Apex
+          zip -qr Apex.ipa Payload
+          ls -lh Apex.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Apex-ipa
+          path: Apex.ipa
+          retention-days: 30
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
