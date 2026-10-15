@@ -56,6 +56,8 @@ final class Car {
     @Attribute(.externalStorage) var sideImageData: Data?
     /// Front three-quarter view for widgets and icons.
     @Attribute(.externalStorage) var frontImageData: Data?
+    /// Own marker for the navigation map; falls back to the front view.
+    @Attribute(.externalStorage) var navImageData: Data?
 
     init(nickname: String = "Mein Auto") {
         self.id = UUID()
@@ -105,6 +107,13 @@ final class Car {
             return image
         }
         return DefaultPixelCar.frontImage
+    }
+
+    var navImage: UIImage {
+        if let data = navImageData, let image = UIImage(data: data) {
+            return image
+        }
+        return frontImage
     }
 
     /// kg per PS.

@@ -64,14 +64,14 @@ struct RootView: View {
             Tab("Fahrten", systemImage: "road.lanes", value: AppTab.drives) {
                 DrivesView()
             }
+            Tab("Navi", systemImage: "location.north.line.fill", value: AppTab.navigate) {
+                DestinationSearchView()
+            }
             Tab("Strecken", systemImage: "flag.checkered", value: AppTab.tracks) {
                 TracksView()
             }
             Tab("Garage", systemImage: "car.side.fill", value: AppTab.garage) {
                 GarageView()
-            }
-            Tab(value: AppTab.navigate, role: .search) {
-                DestinationSearchView()
             }
         }
         .fullScreenCover(isPresented: Binding(

@@ -81,7 +81,7 @@ struct CarDraft {
 }
 
 enum CarImageSlot {
-    case side, front
+    case side, front, nav
 }
 
 /// Import and pixel-art pipeline for one car image.
@@ -104,7 +104,7 @@ final class CarImageModel {
     init(slot: CarImageSlot, data: Data?) {
         self.slot = slot
         self.imageData = data
-        self.columns = slot == .side ? 56 : 40
+        self.columns = slot == .side ? 56 : (slot == .front ? 40 : 32)
     }
 
     var preview: UIImage {
@@ -189,7 +189,7 @@ struct CarImageSection: View {
             ZStack {
                 background
                 PixelImage(image: model.preview)
-                    .padding(.horizontal, model.slot == .side ? 36 : 80)
+                    .padding(.horizontal, model.slot == .side ? 36 : (model.slot == .front ? 80 : 120))
                     .padding(.top, 18)
                     .padding(.bottom, model.slot == .side ? 24 : 18)
                 if model.processing {
@@ -296,6 +296,7 @@ struct CarEditorView: View {
     @State private var draft: CarDraft
     @State private var sideModel: CarImageModel
     @State private var frontModel: CarImageModel
+    @State private var navModel: CarImageModel
     @State private var fileTarget: CarImageSlot = .side
     @State private var showFileImporter = false
     @State private var showDelete = false
@@ -307,9 +308,10 @@ struct CarEditorView: View {
         _draft = State(initialValue: CarDraft(car: car))
         _sideModel = State(initialValue: CarImageModel(slot: .side, data: car.sideImageData))
         _frontModel = State(initialValue: CarImageModel(slot: .front, data: car.frontImageData))
+        _navModel = State(initialValue: CarImageModel(slot: .nav, data: car.navImageData))
     }
 
-    private var processing: Bool { sideModel.processing || frontModel.processing }
+    private var processing: Bool { sideModel.processing || frontModel.processing || navModel.processing }
 
     var body: some View {
         NavigationStack {
@@ -328,6 +330,14 @@ struct CarEditorView: View {
                     model: frontModel
                 ) {
                     fileTarget = .front
+                    showFileImporter = true
+                }
+                CarImageSection(
+                    title: "Navigation – Markierung auf der Karte",
+                    footer: "Am besten von oben oder von hinten. Ohne eigenes Bild nutzt das Navi das Schräg-vorne-Bild.",
+                    model: navModel
+                ) {
+                    fileTarget = .nav
                     showFileImporter = true
                 }
                 Section("Fahrzeug") {
@@ -385,7 +395,7 @@ struct CarEditorView: View {
                 guard case .success(let url) = result else { return }
                 let access = url.startAccessingSecurityScopedResource()
                 defer { if access { url.stopAccessingSecurityScopedResource() } }
-                let target = fileTarget == .side ? sideModel : frontModel
+                let target = fileTarget == .side ? sideModel : (fileTarget == .front ? frontModel : navModel)
                 if let data = try? Data(contentsOf: url) {
                     Task { await target.load(data) }
                 } else {
@@ -410,6 +420,9 @@ struct CarEditorView: View {
         }
         if frontModel.changed {
             car.frontImageData = frontModel.imageData
+        }
+        if navModel.changed {
+            car.navImageData = navModel.imageData
         }
         try? context.save()
         if isNew {

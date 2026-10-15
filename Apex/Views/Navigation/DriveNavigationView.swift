@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import PhotosUI
 
 /// Full-screen turn-by-turn view in the style of Apple Maps, portrait and
 /// landscape.
@@ -381,8 +382,8 @@ struct NavigationPuck: View {
 
     var body: some View {
         if style == "car" {
-            PixelImage(image: Persistence.activeCar()?.frontImage ?? DefaultPixelCar.frontImage)
-                .frame(width: 58, height: 34)
+            PixelImage(image: Persistence.activeCar()?.navImage ?? DefaultPixelCar.frontImage)
+                .frame(width: 58, height: 40)
                 .shadow(color: .black.opacity(0.35), radius: 3, y: 2)
         } else {
             ZStack {
@@ -407,6 +408,9 @@ struct NavigationSoundSheet: View {
     @AppStorage(NavSettings.rallyOn, store: SharedStore.defaults) private var rallyOn = true
     @AppStorage(NavSettings.rallyVolume, store: SharedStore.defaults) private var rallyVolume = 0.85
     @AppStorage(NavSettings.puckStyle, store: SharedStore.defaults) private var puckStyle = "arrow"
+    @State private var photoItem: PhotosPickerItem?
+    @State private var markerImage: UIImage = DefaultPixelCar.frontImage
+    @State private var processing = false
 
     var body: some View {
         NavigationStack {
@@ -423,13 +427,35 @@ struct NavigationSoundSheet: View {
                         volumeRow(value: $rallyVolume) { NavigationService.shared.testVoice(rally: true) }
                     }
                 }
-                Section("Markierung") {
+                Section {
                     Picker("Markierung", selection: $puckStyle) {
                         Text("Pfeil").tag("arrow")
-                        Text("Pixel-Auto").tag("car")
+                        Text("Eigenes Auto").tag("car")
                     }
                     .pickerStyle(.segmented)
+                    if puckStyle == "car" {
+                        HStack(spacing: 14) {
+                            PixelImage(image: markerImage)
+                                .frame(width: 64, height: 44)
+                                .overlay {
+                                    if processing { ProgressView() }
+                                }
+                            PhotosPicker(selection: $photoItem, matching: .images) {
+                                Text("Eigenes Bild wählen")
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                } header: {
+                    Text("Markierung")
+                } footer: {
+                    Text("Ein Foto wird automatisch freigestellt und zu Pixel-Art. Gilt für das aktive Auto.")
                 }
+            }
+            .task { markerImage = Persistence.activeCar()?.navImage ?? DefaultPixelCar.frontImage }
+            .onChange(of: photoItem) { _, item in
+                guard let item else { return }
+                Task { await useMarker(item) }
             }
             .navigationTitle("Ton & Anzeige")
             .navigationBarTitleDisplayMode(.inline)
@@ -439,6 +465,22 @@ struct NavigationSoundSheet: View {
                 }
             }
         }
+    }
+
+    /// Same pipeline as the garage editor: photos are cut out and pixelated.
+    private func useMarker(_ item: PhotosPickerItem) async {
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let car = Persistence.activeCar() else { return }
+        processing = true
+        let model = CarImageModel(slot: .nav, data: nil)
+        await model.load(data)
+        if let result = model.imageData {
+            car.navImageData = result
+            Persistence.save()
+            markerImage = car.navImage
+        }
+        processing = false
+        photoItem = nil
     }
 
     private func volumeRow(value: Binding<Double>, test: @escaping () -> Void) -> some View {

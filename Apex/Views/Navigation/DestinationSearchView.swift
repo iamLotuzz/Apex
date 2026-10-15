@@ -70,67 +70,289 @@ struct SelectedDestination: Identifiable {
     let subtitle: String
 }
 
-/// Search tab: type a destination, pick it, see the routes.
+/// The Navi tab, laid out like Apple Maps: the map fills the screen and one
+/// glass panel at the bottom moves through search → results → routes.
 struct DestinationSearchView: View {
     @State private var query = ""
     @State private var completer: SearchCompleter
-    @State private var selected: SelectedDestination?
     @State private var recents: [RecentDestination] = RecentDestination.load()
-    @State private var searching = false
+    @State private var destination: SelectedDestination?
+    @State private var routes: [MKRoute] = []
+    @State private var selectedRoute = 0
+    @State private var loading = false
+    @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
+    @FocusState private var searchFocused: Bool
+    @AppStorage("navigationTarget", store: SharedStore.defaults) private var target = "apex"
 
     init() {
         _completer = State(initialValue: SearchCompleter())
     }
 
+    private let routeBlue = Color(red: 0.16, green: 0.53, blue: 1.0)
+
     var body: some View {
-        NavigationStack {
-            List {
-                if query.isEmpty {
-                    if recents.isEmpty {
-                        ContentUnavailableView("Wohin soll's gehen?", systemImage: "map", description: Text("Suche oben nach einer Adresse oder einem Ort."))
-                            .listRowBackground(Color.clear)
-                    } else {
-                        Section("Zuletzt") {
-                            ForEach(recents) { recent in
-                                Button {
-                                    selected = SelectedDestination(item: recent.mapItem, subtitle: recent.subtitle)
-                                } label: {
-                                    DestinationRow(title: recent.name, subtitle: recent.subtitle, symbol: "clock.fill", tint: .gray)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    ForEach(completer.results, id: \.self) { result in
-                        Button {
-                            select(result)
-                        } label: {
-                            DestinationRow(title: result.title, subtitle: result.subtitle, symbol: "mappin.circle.fill", tint: .red)
-                        }
-                    }
+        ZStack(alignment: .bottom) {
+            Map(position: $position) {
+                UserAnnotation()
+                ForEach(Array(routes.enumerated()), id: \.offset) { index, route in
+                    MapPolyline(route.polyline)
+                        .stroke(index == selectedRoute ? routeBlue : Color.gray.opacity(0.55),
+                                style: StrokeStyle(lineWidth: index == selectedRoute ? 8 : 6, lineCap: .round, lineJoin: .round))
+                }
+                if let destination {
+                    Marker(destination.item.name ?? "Ziel", systemImage: "flag.checkered", coordinate: destination.item.placemark.coordinate)
+                        .tint(.red)
                 }
             }
-            .navigationTitle("Navigation")
-            .searchable(text: $query, prompt: "Ziel suchen")
-            .onChange(of: query) { _, newValue in completer.update(newValue) }
-            .overlay {
-                if searching { ProgressView() }
+            .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll, showsTraffic: true))
+            .mapControls {
+                MapUserLocationButton()
+                MapCompass()
             }
-            .sheet(item: $selected, onDismiss: { recents = RecentDestination.load() }) { destination in
-                RoutePreviewSheet(destination: destination)
+
+            panel
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+        }
+        .onChange(of: query) { _, newValue in completer.update(newValue) }
+        .animation(.snappy, value: destination?.id)
+        .animation(.snappy, value: searchFocused)
+    }
+
+    // MARK: Panel
+
+    @ViewBuilder
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let destination {
+                routeContent(destination)
+            } else {
+                searchField
+                if query.isEmpty {
+                    recentContent
+                } else {
+                    resultContent
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 32))
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Ziel suchen", text: $query)
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Suche löschen")
+            }
+        }
+        .font(.body)
+        .padding(.horizontal, 14)
+        .frame(height: 46)
+        .background(.fill.tertiary, in: .capsule)
+    }
+
+    @ViewBuilder
+    private var recentContent: some View {
+        if recents.isEmpty {
+            Text("Wohin soll's gehen?")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Zuletzt")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                ForEach(recents.prefix(searchFocused ? 6 : 3)) { recent in
+                    Button {
+                        choose(recent.mapItem, subtitle: recent.subtitle)
+                    } label: {
+                        DestinationRow(title: recent.name, subtitle: recent.subtitle, symbol: "clock.fill", tint: .gray)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
 
-    private func select(_ completion: MKLocalSearchCompletion) {
-        searching = true
-        Task {
-            let response = try? await MKLocalSearch(request: MKLocalSearch.Request(completion: completion)).start()
-            searching = false
-            if let item = response?.mapItems.first {
-                selected = SelectedDestination(item: item, subtitle: completion.subtitle)
+    private var resultContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(completer.results, id: \.self) { result in
+                    Button {
+                        select(result)
+                    } label: {
+                        DestinationRow(title: result.title, subtitle: result.subtitle, symbol: "mappin.circle.fill", tint: .red)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
+        .frame(maxHeight: 340)
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private func routeContent(_ destination: SelectedDestination) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(destination.item.name ?? "Ziel")
+                        .font(.title2.bold())
+                        .lineLimit(1)
+                    if !destination.subtitle.isEmpty {
+                        Text(destination.subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                Button {
+                    close()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .background(.fill.tertiary, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Schließen")
+            }
+
+            if loading {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Route wird berechnet …")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 60)
+            } else if routes.isEmpty {
+                Text("Keine Route gefunden.")
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(Array(routes.enumerated()), id: \.offset) { index, route in
+                        Button {
+                            selectedRoute = index
+                        } label: {
+                            routeRow(route, index: index)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Picker("Navigieren", selection: $target) {
+                Text("In Apex").tag("apex")
+                Text("In Apple Karten").tag("maps")
+            }
+            .pickerStyle(.segmented)
+
+            Button {
+                go(destination)
+            } label: {
+                Text("Los")
+                    .font(.title3.weight(.bold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .controlSize(.large)
+            .disabled(routes.isEmpty && target == "apex")
+        }
+    }
+
+    private func routeRow(_ route: MKRoute, index: Int) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(Fmt.duration(route.expectedTravelTime))
+                        .font(.system(.title3, design: .rounded).weight(.bold))
+                        .monospacedDigit()
+                    if index == 0 {
+                        Text("Schnellste")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                    }
+                }
+                Text("\(NavigationService.displayDistance(route.distance)) · \(route.name)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: index == selectedRoute ? "checkmark.circle.fill" : "circle")
+                .font(.title2)
+                .foregroundStyle(index == selectedRoute ? routeBlue : Color.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.fill.quaternary, in: .rect(cornerRadius: 18))
+        .contentShape(.rect)
+    }
+
+    // MARK: Actions
+
+    private func select(_ completion: MKLocalSearchCompletion) {
+        Task {
+            let response = try? await MKLocalSearch(request: MKLocalSearch.Request(completion: completion)).start()
+            if let item = response?.mapItems.first {
+                choose(item, subtitle: completion.subtitle)
+            }
+        }
+    }
+
+    private func choose(_ item: MKMapItem, subtitle: String) {
+        searchFocused = false
+        destination = SelectedDestination(item: item, subtitle: subtitle)
+        routes = []
+        selectedRoute = 0
+        loading = true
+        Task {
+            let found = await NavigationService.shared.routes(to: item)
+            routes = found
+            loading = false
+            if let first = found.first {
+                let rect = first.polyline.boundingMapRect
+                withAnimation {
+                    position = .rect(rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.6))
+                }
+            }
+        }
+    }
+
+    private func close() {
+        destination = nil
+        routes = []
+        withAnimation { position = .userLocation(fallback: .automatic) }
+    }
+
+    private func go(_ destination: SelectedDestination) {
+        RecentDestination.remember(destination.item, subtitle: destination.subtitle)
+        recents = RecentDestination.load()
+        if target == "maps" {
+            destination.item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+        } else if routes.indices.contains(selectedRoute) {
+            NavigationService.shared.start(route: routes[selectedRoute], to: destination.item)
+        }
+        query = ""
+        close()
     }
 }
 
@@ -145,10 +367,10 @@ private struct DestinationRow: View {
             Image(systemName: symbol)
                 .font(.title2)
                 .foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 2) {
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .font(.body)
-                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 if !subtitle.isEmpty {
                     Text(subtitle)
@@ -157,134 +379,10 @@ private struct DestinationRow: View {
                         .lineLimit(1)
                 }
             }
+            Spacer(minLength: 0)
         }
-    }
-}
-
-/// Routes to the chosen destination, the "In Apex / In Apple Karten" switch
-/// and the green Los button – like the route card in Apple Maps.
-struct RoutePreviewSheet: View {
-    let destination: SelectedDestination
-
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("navigationTarget", store: SharedStore.defaults) private var target = "apex"
-    @State private var routes: [MKRoute] = []
-    @State private var selectedIndex = 0
-    @State private var loading = true
-    @State private var position: MapCameraPosition = .automatic
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 14) {
-                Map(position: $position) {
-                    ForEach(Array(routes.enumerated()), id: \.offset) { index, route in
-                        MapPolyline(route.polyline)
-                            .stroke(index == selectedIndex ? Color(red: 0.16, green: 0.53, blue: 1.0) : Color.gray.opacity(0.6),
-                                    style: StrokeStyle(lineWidth: index == selectedIndex ? 8 : 6, lineCap: .round, lineJoin: .round))
-                    }
-                    Marker(destination.item.name ?? "Ziel", systemImage: "flag.checkered", coordinate: destination.item.placemark.coordinate)
-                        .tint(.red)
-                    UserAnnotation()
-                }
-                .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll, showsTraffic: true))
-                .frame(height: 250)
-                .clipShape(.rect(cornerRadius: 24))
-
-                if loading {
-                    ProgressView("Route wird berechnet …")
-                        .frame(maxHeight: .infinity)
-                } else if routes.isEmpty {
-                    ContentUnavailableView("Keine Route gefunden", systemImage: "exclamationmark.triangle")
-                } else {
-                    ScrollView {
-                        VStack(spacing: 8) {
-                            ForEach(Array(routes.enumerated()), id: \.offset) { index, route in
-                                Button {
-                                    selectedIndex = index
-                                } label: {
-                                    routeRow(route, index: index)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-
-                Picker("Navigieren", selection: $target) {
-                    Text("In Apex").tag("apex")
-                    Text("In Apple Karten").tag("maps")
-                }
-                .pickerStyle(.segmented)
-
-                Button {
-                    go()
-                } label: {
-                    Text("Los")
-                        .font(.title3.weight(.bold))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .controlSize(.large)
-                .disabled(routes.isEmpty && target == "apex")
-            }
-            .padding()
-            .navigationTitle(destination.item.name ?? "Ziel")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { dismiss() }
-                }
-            }
-            .task {
-                routes = await NavigationService.shared.routes(to: destination.item)
-                loading = false
-                if let first = routes.first {
-                    position = .rect(first.polyline.boundingMapRect.insetBy(dx: -first.polyline.boundingMapRect.width * 0.15, dy: -first.polyline.boundingMapRect.height * 0.25))
-                }
-            }
-        }
-    }
-
-    private func routeRow(_ route: MKRoute, index: Int) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(Fmt.duration(route.expectedTravelTime))
-                        .font(.system(.title3, design: .rounded).weight(.bold))
-                    if index == 0 {
-                        Text("Schnellste")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.green)
-                    }
-                }
-                Text("\(NavigationService.displayDistance(route.distance)) · \(route.name)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            if index == selectedIndex {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(Color(red: 0.16, green: 0.53, blue: 1.0))
-            }
-        }
-        .padding(14)
-        .background(.background.secondary, in: .rect(cornerRadius: 18))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(index == selectedIndex ? Color(red: 0.16, green: 0.53, blue: 1.0) : Color.clear, lineWidth: 2)
-        )
-    }
-
-    private func go() {
-        RecentDestination.remember(destination.item, subtitle: destination.subtitle)
-        if target == "maps" {
-            destination.item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
-        } else if routes.indices.contains(selectedIndex) {
-            NavigationService.shared.start(route: routes[selectedIndex], to: destination.item)
-        }
-        dismiss()
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .contentShape(.rect)
     }
 }
