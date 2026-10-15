@@ -52,6 +52,9 @@ final class LocationService: NSObject {
     @ObservationIgnored private var probeDeadline = Date.distantPast
     @ObservationIgnored private var lastProbeEnd = Date.distantPast
     @ObservationIgnored private var recentFixes: [DrivePoint] = []
+    @ObservationIgnored private var driveFilter = GPSFilter()
+    /// Consecutive reliable fixes at or above the start speed while probing.
+    @ObservationIgnored private var fastStreak = 0
     @ObservationIgnored private var lastMovingDate = Date()
     @ObservationIgnored private var lastAutomotiveDate = Date.distantPast
     @ObservationIgnored private var lastWalkingDate = Date.distantPast
@@ -294,6 +297,7 @@ final class LocationService: NSObject {
         switch mode {
         case .idle:
             mode = .probing
+            fastStreak = 0
             probeStarted = Date()
             probeDeadline = Date().addingTimeInterval(duration)
             applyLocationMode()
@@ -349,7 +353,15 @@ final class LocationService: NSObject {
             }
         case .probing:
             remember(location, speed: v)
-            if v >= startSpeed && location.horizontalAccuracy <= 50 {
+            // Start only after three fixes in a row with a measured (Doppler)
+            // speed above the threshold and good accuracy. Walking, GPS drift
+            // or a single bad fix no longer start a drive.
+            if Self.isReliable(location) && location.speed >= startSpeed {
+                fastStreak += 1
+            } else {
+                fastStreak = 0
+            }
+            if fastStreak >= 3 {
                 beginDrive(manual: false)
             }
         case .recording:
@@ -360,18 +372,24 @@ final class LocationService: NSObject {
     /// Keeps the last 15 minutes of usable fixes so a new drive can start at
     /// the real departure point.
     private func remember(_ location: CLLocation, speed: Double) {
-        guard location.horizontalAccuracy <= 65 else { return }
+        guard location.horizontalAccuracy <= GPSFilter.maxAccuracy, location.speed >= 0 else { return }
         recentFixes.append(DrivePoint(location: location, speed: speed))
         let cutoff = location.timestamp.timeIntervalSinceReferenceDate - 15 * 60
         recentFixes.removeAll { $0.t < cutoff }
     }
 
+    /// Only the GPS Doppler speed counts. Speeds computed from two positions
+    /// jump with every position error (10 m off = 36 km/h) and used to start
+    /// drives while standing or walking.
     private func effectiveSpeed(_ location: CLLocation, previous: CLLocation?) -> Double {
-        if location.speed >= 0 { return location.speed }
-        guard let previous else { return 0 }
-        let dt = location.timestamp.timeIntervalSince(previous.timestamp)
-        guard dt > 0.5, dt < 30 else { return 0 }
-        return location.distance(from: previous) / dt
+        location.speed >= 0 ? location.speed : 0
+    }
+
+    private static func isReliable(_ location: CLLocation) -> Bool {
+        guard location.speed >= 0,
+              location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy <= 20 else { return false }
+        return location.speedAccuracy < 0 || location.speedAccuracy <= 1.5
     }
 
     private func appendDrivePoint(_ location: CLLocation, speed: Double) {
@@ -382,8 +400,10 @@ final class LocationService: NSObject {
             // Standing still: the next real acceleration is a launch.
             launchArmed = true
         }
-        guard location.horizontalAccuracy <= 50 else { return }
-        let point = DrivePoint(location: location, speed: speed)
+        guard let cleaned = driveFilter.process(location) else { return }
+        var point = DrivePoint(location: location, speed: speed)
+        point.lat = cleaned.latitude
+        point.lon = cleaned.longitude
         if let last = livePoints.last {
             let dt = point.t - last.t
             guard dt >= 0.5 else { return }
@@ -391,7 +411,7 @@ final class LocationService: NSObject {
             if d / dt < 95 { liveDistance += d }
         }
         livePoints.append(point)
-        if location.horizontalAccuracy <= 35 {
+        if Self.isReliable(location) {
             liveMaxSpeed = max(liveMaxSpeed, point.speed)
         }
         persistActiveDrive(force: false)
@@ -429,6 +449,8 @@ final class LocationService: NSObject {
         isManualDrive = manual
         livePoints = manual ? [] : departureFixes()
         recentFixes = []
+        driveFilter = GPSFilter()
+        fastStreak = 0
         driveStart = livePoints.first?.date ?? Date()
         recomputeLiveStats()
         lastMovingDate = Date()
