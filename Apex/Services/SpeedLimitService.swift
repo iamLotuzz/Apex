@@ -364,12 +364,12 @@ final class SpeedLimitService {
     }
 
     /// "50", "30 mph", "DE:urban", "none", "signals" … → limit.
-    static func parse(_ value: String?) -> SpeedLimit? {
+    nonisolated static func parse(_ value: String?) -> SpeedLimit? {
         guard let kind = parseKind(value) else { return nil }
         return SpeedLimit(kind: kind, estimated: false)
     }
 
-    static func parseKind(_ value: String?) -> SpeedLimit.Kind? {
+    nonisolated static func parseKind(_ value: String?) -> SpeedLimit.Kind? {
         guard let raw = value?.lowercased().trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
         if raw == "none" || raw.hasSuffix(":motorway") { return SpeedLimit.Kind.none }
         if raw == "signals" || raw == "variable" { return .variable }
