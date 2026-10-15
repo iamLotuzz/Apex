@@ -95,10 +95,9 @@ struct LiveSessionView: View {
 
             PixelImage(image: carImage)
                 .frame(width: 40, height: 24)
-            Text(trackModel.name.uppercased())
-                .font(.subheadline.weight(.heavy))
-                .tracking(1.2)
-                .foregroundStyle(.white.opacity(0.75))
+            Text(trackModel.name)
+                .font(.headline)
+                .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(1)
 
             Spacer(minLength: 8)
@@ -115,30 +114,28 @@ struct LiveSessionView: View {
     /// (measured along the reference lap).
     private var lapIndicator: some View {
         let progress = timer.lapProgress ?? 0
-        return HStack(alignment: .center, spacing: 10) {
+        return HStack(alignment: .center, spacing: 8) {
             if timer.phase == .running {
-                Text("RUNDE")
-                    .font(.system(size: 12, weight: .heavy))
-                    .tracking(2)
+                Text("Runde")
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(0.75))
                 Text("\(timer.currentLapNumber)")
-                    .font(.system(size: 38, weight: .black, design: .rounded))
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: Double(timer.currentLapNumber)))
                 if timer.lapProgress != nil {
                     Text("\(Int((progress * 100).rounded())) %")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(0.75))
                 }
             } else {
-                Text(timer.laps.isEmpty ? "BEREIT" : "IM ZIEL")
-                    .font(.system(size: 17, weight: .heavy))
-                    .tracking(2)
+                Text(timer.laps.isEmpty ? "Bereit" : "Im Ziel")
+                    .font(.subheadline.weight(.semibold))
             }
         }
-        .padding(.horizontal, 20)
-        .frame(height: 54)
+        .padding(.horizontal, 14)
+        .frame(height: 36)
         .background {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -150,12 +147,12 @@ struct LiveSessionView: View {
                             startPoint: .leading,
                             endPoint: .trailing
                         ))
-                        .frame(width: progress > 0 ? max(54, geo.size.width * progress) : 0)
+                        .frame(width: progress > 0 ? max(36, geo.size.width * progress) : 0)
                 }
             }
         }
         .clipShape(.capsule)
-        .overlay(Capsule().strokeBorder(Color.orange.opacity(0.6), lineWidth: 1.5))
+        .overlay(Capsule().strokeBorder(Color.orange.opacity(0.6), lineWidth: 1))
         .animation(.linear(duration: 0.9), value: progress)
         .accessibilityElement(children: .combine)
     }
