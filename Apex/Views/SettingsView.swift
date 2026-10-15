@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import SwiftData
 import CoreLocation
@@ -86,6 +87,22 @@ struct SettingsView: View {
                     Text("Ohne eigenen Key zeigt Apex Demo-Preise. Den Kraftstoff stellst du beim Auto in der Garage ein.")
                 }
 
+                Section {
+                    SiriTipView(intent: StartDriveIntent())
+                        .siriTipViewStyle(.automatic)
+                    ForEach(siriPhrases, id: \.self) { phrase in
+                        Label(phrase, systemImage: "mic.fill")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    ShortcutsLink()
+                        .shortcutsLinkStyle(.automaticOutline)
+                        .frame(maxWidth: .infinity)
+                } header: {
+                    Text("Siri & Kurzbefehle")
+                } footer: {
+                    Text("Sag einfach „Hey Siri“ und einen der Sätze.")
+                }
                 Section("Rundenzeiten") {
                     Picker("Delta-Referenz", selection: $lapReference) {
                         ForEach(LapReference.allCases) { ref in
@@ -144,6 +161,13 @@ struct SettingsView: View {
         }
     }
 
+    private let siriPhrases = [
+        "Starte eine Fahrt mit Apex",
+        "Beende die Fahrt in Apex",
+        "Fahrtstatus in Apex",
+        "Wo ist die günstigste Tankstelle in Apex",
+        "Wie sind die Fahrbedingungen in Apex"
+    ]
     private var statusText: String {
         switch location.mode {
         case .idle: return autoTracking ? "Wartet auf Fahrt" : "Aus"
