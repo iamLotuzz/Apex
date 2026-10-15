@@ -1,7 +1,8 @@
 import SwiftUI
 import MapKit
 
-/// Map that follows the user while a drive records.
+/// Map that follows the user while a drive records, with a Maps-style
+/// card at the bottom.
 struct LiveDriveView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var position: MapCameraPosition = .userLocation(followsHeading: true, fallback: .automatic)
@@ -15,7 +16,7 @@ struct LiveDriveView: View {
                     UserAnnotation()
                     if location.livePoints.count >= 2 {
                         MapPolyline(coordinates: location.livePoints.map(\.coordinate))
-                            .stroke(.orange, style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
+                            .stroke(.blue, style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
                     }
                 }
                 .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
@@ -25,15 +26,17 @@ struct LiveDriveView: View {
                 }
                 .ignoresSafeArea(edges: .bottom)
 
-                panel
-                    .padding(.horizontal)
-                    .padding(.bottom, 12)
+                card
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
             }
             .navigationTitle(location.isRecording ? "Fahrt läuft" : "Keine aktive Fahrt")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    header
+                if location.isRecording {
+                    ToolbarItem(placement: .topBarLeading) {
+                        LivePill()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Fertig") { dismiss() }
@@ -42,88 +45,82 @@ struct LiveDriveView: View {
         }
     }
 
-    /// Title with a pulsing dot and "seit 17:42:08" underneath.
-    private var header: some View {
-        VStack(spacing: 1) {
-            HStack(spacing: 6) {
-                if location.isRecording {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.red)
-                        .symbolEffect(.pulse)
-                }
-                Text(location.isRecording ? "Fahrt läuft" : "Keine aktive Fahrt")
-                    .font(.headline)
-            }
-            if location.isRecording, let start = location.driveStart {
-                Text("seit \(start.formatted(date: .omitted, time: .standard)) · ab der Abfahrt")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var panel: some View {
+    private var card: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
-            VStack(spacing: 16) {
-                HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 12) {
                     PixelImage(image: car?.frontImage ?? DefaultPixelCar.frontImage)
-                        .frame(width: 44, height: 26)
-                    Text(car?.displayName ?? "Mein Auto")
-                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 40, height: 24)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(car?.displayName ?? "Mein Auto")
+                            .font(.headline)
+                        if location.isRecording, let start = location.driveStart {
+                            Text("Unterwegs seit \(Fmt.time(start))")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Spacer()
-                    if location.isRecording {
-                        LivePill(showsDuration: false)
+                }
+
+                Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 14) {
+                    GridRow {
+                        metric("Tempo", Fmt.kmhValue(location.speed), unit: "km/h", large: true)
+                            .gridCellColumns(3)
+                    }
+                    GridRow {
+                        metric("Strecke", Fmt.km(location.liveDistance, digits: 1), unit: "km")
+                        metric("Dauer", Fmt.clock(location.liveDuration), unit: nil)
+                        metric("Max.", Fmt.kmhValue(location.liveMaxSpeed), unit: "km/h")
                     }
                 }
-
-                HStack(alignment: .lastTextBaseline, spacing: 6) {
-                    Text(Fmt.kmhValue(location.speed))
-                        .font(.system(size: 72, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                    Text("km/h")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-
-                HStack(spacing: 0) {
-                    MiniStat(value: Fmt.distance(location.liveDistance), caption: "Strecke")
-                    MiniStat(value: Fmt.clock(location.liveDuration), caption: "Dauer")
-                    MiniStat(value: Fmt.kmh(location.liveMaxSpeed), caption: "Max.")
-                }
-                .padding(.vertical, 10)
-                .background(.fill.tertiary, in: .rect(cornerRadius: 16))
 
                 if location.isRecording {
                     Button(role: .destructive) {
                         location.stopDrive()
                         dismiss()
                     } label: {
-                        Label("Fahrt beenden & speichern", systemImage: "stop.fill")
+                        Text("Fahrt beenden")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4)
                     }
-                    .buttonStyle(.glassProminent)
+                    .buttonStyle(.borderedProminent)
                     .tint(.red)
+                    .controlSize(.large)
                 } else {
                     Button {
                         location.startManualDrive()
                     } label: {
-                        Label("Fahrt starten", systemImage: "play.fill")
+                        Text("Fahrt starten")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4)
                     }
-                    .buttonStyle(.glassProminent)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                 }
             }
-            .padding(18)
-            .glassEffect(.regular, in: .rect(cornerRadius: 30))
+            .padding(20)
+            .glassEffect(.regular, in: .rect(cornerRadius: 34))
+        }
+    }
+
+    /// A Fitness-style metric: grey caption, rounded number, small unit.
+    private func metric(_ title: String, _ value: String, unit: String?, large: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value)
+                    .font(.system(size: large ? 54 : 24, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                if let unit {
+                    Text(unit)
+                        .font(large ? .title3.weight(.medium) : .subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }

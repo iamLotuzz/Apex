@@ -58,8 +58,6 @@ struct DrivesView: View {
                 if location.isRecording {
                     Section {
                         LiveDriveBanner { showLiveDrive = true }
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
                     }
                 }
 
@@ -74,7 +72,7 @@ struct DrivesView: View {
                 ForEach(sections) { section in
                     Section(section.title) {
                         ForEach(section.drives) { drive in
-                            NavigationLink(value: drive.id) {
+                            NavigationLink(value: DriveLink(id: drive.id)) {
                                 DriveRow(drive: drive, car: cars.count > 1 ? cars.first(where: { $0.id == drive.carID }) : nil)
                             }
                             .tag(drive.id)
@@ -112,8 +110,8 @@ struct DrivesView: View {
             .listStyle(.insetGrouped)
             .environment(\.editMode, $editMode)
             .navigationTitle("Fahrten")
-            .navigationDestination(for: UUID.self) { id in
-                if let drive = drives.first(where: { $0.id == id }) {
+            .navigationDestination(for: DriveLink.self) { link in
+                if let drive = drives.first(where: { $0.id == link.id }) {
                     DriveDetailView(drive: drive)
                 } else {
                     ContentUnavailableView("Fahrt gelöscht", systemImage: "trash")
@@ -262,38 +260,43 @@ private struct WeekSummary: View {
     }
 }
 
-/// Red "LIVE · 0:18:32" capsule shown while a drive records.
+/// Value pushed when a drive row is tapped. A dedicated type keeps
+/// navigation separate from the list's edit selection (also UUIDs).
+struct DriveLink: Hashable {
+    let id: UUID
+}
+
+/// Red capsule with the elapsed time, like the call indicator in iOS.
 struct LivePill: View {
     var showsDuration = true
     private var location: LocationService { .shared }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
-            HStack(spacing: 6) {
-                Image(systemName: "circle.fill")
-                    .font(.system(size: 8))
-                    .foregroundStyle(.red)
-                    .symbolEffect(.pulse)
-                Text("LIVE")
-                    .font(.caption.weight(.heavy))
-                    .tracking(1.2)
+            Label {
                 if showsDuration {
                     Text(Fmt.clock(location.liveDuration))
-                        .font(.caption.weight(.semibold))
                         .monospacedDigit()
+                } else {
+                    Text("Live")
                 }
+            } icon: {
+                Image(systemName: "car.fill")
+                    .symbolEffect(.pulse)
             }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
+            .background(.red, in: .capsule)
         }
-        .glassEffect(.regular.tint(Color.red.opacity(0.22)), in: .capsule)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Fahrt läuft")
     }
 }
 
-/// The running drive at the top of the list: status line, big speed,
-/// distance and duration.
+/// The running drive as a regular list row: app-style icon, title,
+/// distance and time, and the current speed on the trailing side.
 struct LiveDriveBanner: View {
     var onOpen: () -> Void
     private var location: LocationService { .shared }
@@ -301,53 +304,39 @@ struct LiveDriveBanner: View {
     var body: some View {
         Button(action: onOpen) {
             TimelineView(.periodic(from: .now, by: 1)) { _ in
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.red)
-                            .symbolEffect(.pulse)
-                        Text(location.isManualDrive ? "FAHRT LÄUFT · MANUELL" : "FAHRT LÄUFT")
-                            .font(.caption.weight(.heavy))
-                            .tracking(1.4)
-                            .foregroundStyle(.red)
-                        Spacer()
-                        if let start = location.driveStart {
-                            Text("seit \(Fmt.time(start))")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.tertiary)
+                HStack(spacing: 14) {
+                    Image(systemName: "car.fill")
+                        .font(.title3)
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.red.gradient, in: .rect(cornerRadius: 11))
+                        .symbolEffect(.pulse)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(location.isManualDrive ? "Fahrt läuft (manuell)" : "Fahrt läuft")
+                            .font(.headline)
+                        Text("\(Fmt.distance(location.liveDistance)) · \(Fmt.clock(location.liveDuration))")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
                     }
-                    HStack(alignment: .lastTextBaseline) {
-                        HStack(alignment: .lastTextBaseline, spacing: 4) {
-                            Text(Fmt.kmhValue(location.speed))
-                                .font(.system(size: 46, weight: .heavy, design: .rounded))
-                                .monospacedDigit()
-                                .contentTransition(.numericText())
-                            Text("km/h")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(Fmt.distance(location.liveDistance))
-                                .font(.system(.title3, design: .rounded).weight(.bold))
-                                .monospacedDigit()
-                            Text(Fmt.clock(location.liveDuration))
-                                .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(Fmt.kmhValue(location.speed))
+                            .font(.system(.title2, design: .rounded).weight(.semibold))
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                        Text("km/h")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                .padding(16)
+                .padding(.vertical, 4)
+                .contentShape(.rect)
             }
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.tint(Color.red.opacity(0.10)).interactive(), in: .rect(cornerRadius: 26))
-        .padding(.vertical, 4)
     }
 }
