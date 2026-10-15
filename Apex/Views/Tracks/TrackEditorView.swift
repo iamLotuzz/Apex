@@ -53,13 +53,13 @@ struct TrackEditorView: View {
                 ? "Tippe auf einen Rand der Start/Ziel-Linie."
                 : "Tippe auf einen Rand der Startlinie."
         case 1:
-            return "Tippe jetzt auf den anderen Rand – quer über die Fahrbahn."
+            return "Jetzt den anderen Rand antippen."
         case 2 where kind == .sprint:
-            return "Startlinie steht. Tippe auf einen Rand der Ziellinie."
+            return "Ziellinie: ersten Rand antippen."
         case 3 where kind == .sprint:
-            return "Tippe auf den anderen Rand der Ziellinie."
+            return "Ziellinie: anderen Rand antippen."
         default:
-            return "Linie gesetzt (\(lineLength) m breit). Etwas breiter als die Strecke ist ideal – GPS ist auf ein paar Meter genau."
+            return "Linie gesetzt · \(lineLength) m breit"
         }
     }
 
@@ -150,9 +150,10 @@ struct TrackEditorView: View {
 
     private var footer: some View {
         VStack(spacing: 10) {
-            Text(searchFailed ? "Nichts gefunden. Versuch einen anderen Suchbegriff." : instruction)
+            Text(searchFailed ? "Nichts gefunden." : instruction)
                 .font(.subheadline.weight(.medium))
-                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity)
             HStack(spacing: 10) {
                 Button {
@@ -175,6 +176,8 @@ struct TrackEditorView: View {
                 }
             }
             .buttonStyle(.glass)
+            .lineLimit(1)
+            .font(.subheadline)
         }
         .padding(16)
         .glassEffect(.regular, in: .rect(cornerRadius: 26))

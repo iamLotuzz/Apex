@@ -98,8 +98,11 @@ struct TrackRecorderView: View {
 
     private var readyPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Fahr zur Start/Ziel-Linie und tippe beim Überfahren auf Start.", systemImage: "flag.checkered")
+            Label("An der Start/Ziel-Linie auf Start tippen", systemImage: "flag.checkered")
                 .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
             HStack(spacing: 0) {
                 MiniStat(value: Fmt.kmhValue(recorder.speed), caption: "km/h")
                 MiniStat(value: recorder.accuracy < 0 ? "–" : "±\(Int(recorder.accuracy)) m", caption: recorder.gpsReady ? "GPS bereit" : "GPS sucht …")
@@ -115,9 +118,11 @@ struct TrackRecorderView: View {
             .buttonStyle(.glassProminent)
             .tint(.green)
             .disabled(!recorder.gpsReady)
-            Text("Am besten im Fahrtempo über die Linie tippen – dann liegt sie genau quer zur Fahrtrichtung.")
+            Text("Tipp: im Fahrtempo über die Linie starten")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+
         }
         .padding(18)
         .glassEffect(.regular, in: .rect(cornerRadius: 30))
@@ -152,11 +157,11 @@ struct TrackRecorderView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .tint(.red)
-                Text(recorder.lapClosed
-                     ? "Du bist wieder über die Linie gefahren. Die Rundenzeit steht – tippe auf Stopp."
-                     : "Tippe auf Stopp, wenn du wieder über die Start/Ziel-Linie fährst. Für eine Strecke von A nach B tippe am Ziel.")
+                Text(recorder.lapClosed ? "Runde geschlossen – jetzt Stopp tippen" : "Stopp an der Linie – oder am Ziel (A → B)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .padding(18)
             .glassEffect(.regular, in: .rect(cornerRadius: 30))
@@ -176,14 +181,17 @@ struct TrackRecorderView: View {
                       systemImage: result.kind == .circuit ? "arrow.triangle.2.circlepath" : "arrow.right")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 if let lap = result.lap {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(Fmt.lap(lap.duration))
                             .font(.system(size: 48, weight: .heavy, design: .rounded))
                             .monospacedDigit()
-                        Text("\(Fmt.distance(lap.distance)) · max. \(Fmt.kmh(lap.maxSpeed)) · wird Runde 1 und Referenz")
+                        Text("\(Fmt.distance(lap.distance)) · max. \(Fmt.kmh(lap.maxSpeed)) · Runde 1")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                 }
                 TextField("Name der Strecke", text: $name)
@@ -210,9 +218,10 @@ struct TrackRecorderView: View {
                     .buttonStyle(.glassProminent)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                Text("Die Linie kannst du später unter Strecke → Bearbeiten verschieben.")
+                Text("Linie später unter „Bearbeiten“ verschiebbar")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             .padding(18)
             .glassEffect(.regular, in: .rect(cornerRadius: 30))
@@ -221,10 +230,11 @@ struct TrackRecorderView: View {
                 Label("Zu kurz aufgezeichnet", systemImage: "exclamationmark.triangle.fill")
                     .font(.headline)
                     .foregroundStyle(.orange)
-                Text("Fahr nach dem Start mindestens ein paar Meter, bevor du auf Stopp tippst.")
+                Text("Erst ein paar Meter fahren, dann Stopp")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Button("Nochmal") { recorder.reset() }
                     .buttonStyle(.glassProminent)
             }
