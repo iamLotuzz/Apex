@@ -162,6 +162,7 @@ struct SettingsView: View {
     }
 
     private let siriPhrases = [
+        "Navigiere mit Apex",
         "Starte eine Fahrt mit Apex",
         "Beende die Fahrt in Apex",
         "Fahrtstatus in Apex",

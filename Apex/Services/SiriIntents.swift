@@ -1,5 +1,6 @@
 import AppIntents
 import CoreLocation
+import MapKit
 import SwiftData
 
 // Siri and Shortcuts. App Shortcuts need no Siri entitlement, so they also
@@ -116,8 +117,50 @@ struct DrivingConditionsIntent: AppIntent {
     }
 }
 
+struct NavigateIntent: AppIntent {
+    static let title: LocalizedStringResource = "Navigieren"
+    static let description = IntentDescription("Startet die Navigation zu einem Ziel – in Apex oder in Apple Karten, je nach Einstellung.")
+    static let openAppWhenRun: Bool = true
+
+    @Parameter(title: "Ziel", requestValueDialog: "Wohin möchtest du?")
+    var destination: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = destination
+        if let here = LocationService.shared.lastLocation?.coordinate ?? SharedStore.lastLocation {
+            request.region = MKCoordinateRegion(center: here, latitudinalMeters: 100_000, longitudinalMeters: 100_000)
+        }
+        guard let item = try? await MKLocalSearch(request: request).start().mapItems.first else {
+            return .result(dialog: "Ich habe \(destination) nicht gefunden.")
+        }
+        let name = item.name ?? destination
+        RecentDestination.remember(item, subtitle: "")
+        if (SharedStore.defaults.string(forKey: "navigationTarget") ?? "apex") == "maps" {
+            item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+            return .result(dialog: "Ich öffne Apple Karten nach \(name).")
+        }
+        guard let route = await NavigationService.shared.routes(to: item).first else {
+            return .result(dialog: "Ich habe keine Route nach \(name) gefunden.")
+        }
+        NavigationService.shared.start(route: route, to: item)
+        return .result(dialog: "Navigation nach \(name) gestartet.")
+    }
+}
+
 struct ApexShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: NavigateIntent(),
+            phrases: [
+                "Navigiere mit \(.applicationName)",
+                "Starte die Navigation in \(.applicationName)",
+                "\(.applicationName) Navigation"
+            ],
+            shortTitle: "Navigieren",
+            systemImageName: "location.north.line.fill"
+        )
         AppShortcut(
             intent: StartDriveIntent(),
             phrases: [

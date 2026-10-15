@@ -51,7 +51,7 @@ enum OrientationController {
 }
 
 enum AppTab: Hashable {
-    case drives, tracks, garage
+    case drives, tracks, garage, navigate
 }
 
 struct RootView: View {
@@ -70,6 +70,15 @@ struct RootView: View {
             Tab("Garage", systemImage: "car.side.fill", value: AppTab.garage) {
                 GarageView()
             }
+            Tab(value: AppTab.navigate, role: .search) {
+                DestinationSearchView()
+            }
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { NavigationService.shared.isActive },
+            set: { if !$0 { NavigationService.shared.stop() } }
+        )) {
+            DriveNavigationView()
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .fullScreenCover(isPresented: Binding(get: { !onboardingDone }, set: { onboardingDone = !$0 })) {
