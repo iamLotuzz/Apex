@@ -119,3 +119,42 @@ struct PriceText: View {
         .monospacedDigit()
     }
 }
+
+/// Turns a colourful pixel car into a clean two-tone silhouette for the
+/// monochrome lock screen. iOS renders lock-screen widgets by brightness, so
+/// a red body and blue windows both became the same muddy grey. Here the body,
+/// outline and tyres become solid white, while light parts (windows, lights,
+/// number plate) become 35 % white – the car keeps its shape and details.
+enum LockScreenCar {
+    static func make(from image: UIImage) -> UIImage {
+        guard let cg = image.cgImage else { return image }
+        let width = cg.width
+        let height = cg.height
+        guard width > 0, height > 0,
+              let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return image }
+        context.interpolationQuality = .none
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data else { return image }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        for i in 0..<(width * height) {
+            let o = i * 4
+            let alpha = Double(pixels[o + 3])
+            guard alpha >= 100 else {
+                pixels[o] = 0; pixels[o + 1] = 0; pixels[o + 2] = 0; pixels[o + 3] = 0
+                continue
+            }
+            let r = Double(pixels[o]) / alpha
+            let g = Double(pixels[o + 1]) / alpha
+            let b = Double(pixels[o + 2]) / alpha
+            let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+            let value = UInt8(luminance > 0.72 ? 90 : 255)
+            pixels[o] = value; pixels[o + 1] = value; pixels[o + 2] = value; pixels[o + 3] = value
+        }
+        guard let result = context.makeImage() else { return image }
+        return UIImage(cgImage: result, scale: image.scale, orientation: .up)
+    }
+}

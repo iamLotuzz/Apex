@@ -88,6 +88,10 @@ struct FuelWidgetView: View {
         switch family {
         case .accessoryRectangular:
             rectangular
+        case .accessoryCircular:
+            circular
+        case .accessoryInline:
+            inline
         case .systemMedium:
             medium
         default:
@@ -95,38 +99,86 @@ struct FuelWidgetView: View {
         }
     }
 
-    // Lock screen: pixel car on the left, the three cheapest stations on the right.
-    private var rectangular: some View {
-        HStack(spacing: 6) {
-            VStack(spacing: 2) {
-                PixelImage(image: entry.car)
-                    .frame(maxWidth: 54, maxHeight: 34)
-                Text(entry.fuel.shortTitle)
-                    .font(.system(size: 10, weight: .heavy, design: .rounded))
-                    .widgetAccentable()
-            }
-            .frame(width: 56)
+    /// Silhouette version of the car for the monochrome lock screen.
+    private var lockCar: UIImage { LockScreenCar.make(from: entry.car) }
 
-            VStack(alignment: .leading, spacing: 1) {
-                if entry.stations.isEmpty {
-                    Text(entry.note ?? "Keine Preise")
-                        .font(.system(size: 11, weight: .semibold))
-                        .lineLimit(3)
-                } else {
-                    ForEach(entry.stations.prefix(3)) { station in
-                        HStack(spacing: 3) {
+    // Lock screen: car on a tile with the fuel type, then the three cheapest
+    // stations. The cheapest one is large; the others step back in opacity,
+    // so the widget has a clear hierarchy without colour.
+    private var rectangular: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                AccessoryWidgetBackground()
+                VStack(spacing: 3) {
+                    PixelImage(image: lockCar)
+                        .frame(maxWidth: 42, maxHeight: 26)
+                    Text(entry.fuel.shortTitle)
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .padding(.horizontal, 4)
+            }
+            .frame(width: 52)
+            .clipShape(.rect(cornerRadius: 12))
+            .widgetAccentable()
+
+            if let cheapest = entry.stations.first {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(cheapest.displayName)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 2)
+                        PriceText(price: cheapest.price, size: 19, weight: .bold)
+                    }
+                    ForEach(entry.stations.dropFirst().prefix(2)) { station in
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Text(station.displayName)
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: 11, weight: .medium))
                                 .lineLimit(1)
                             Spacer(minLength: 2)
-                            PriceText(price: station.price, size: 13, weight: .heavy)
+                            PriceText(price: station.price, size: 12, weight: .semibold)
                         }
+                        .opacity(0.65)
                     }
                 }
+            } else {
+                Text(entry.note ?? "Keine Preise")
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
+    // Lock screen, round: car silhouette and the cheapest price.
+    private var circular: some View {
+        ZStack {
+            AccessoryWidgetBackground()
+            VStack(spacing: 1) {
+                PixelImage(image: lockCar)
+                    .frame(maxWidth: 32, maxHeight: 16)
+                if let cheapest = entry.stations.first {
+                    PriceText(price: cheapest.price, size: 13, weight: .bold)
+                } else {
+                    Text(entry.fuel.shortTitle)
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                }
+            }
+        }
+        .widgetAccentable()
+    }
+
+    // Lock screen, one line above the clock.
+    @ViewBuilder
+    private var inline: some View {
+        if let cheapest = entry.stations.first {
+            Label("\(entry.fuel.shortTitle) \(PriceFormat.parts(cheapest.price).main)\(PriceFormat.parts(cheapest.price).last) · \(cheapest.displayName)", systemImage: "fuelpump.fill")
+        } else {
+            Label(entry.fuel.title, systemImage: "fuelpump.fill")
+        }
+    }
     private var small: some View {
         VStack(alignment: .leading, spacing: 6) {
             PixelImage(image: entry.car)
@@ -199,7 +251,7 @@ struct WidgetBackground: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        if family == .accessoryRectangular {
+        if family == .accessoryRectangular || family == .accessoryCircular || family == .accessoryInline {
             Color.clear
         } else {
             LinearGradient(
@@ -224,7 +276,7 @@ struct ApexFuelWidget: Widget {
         }
         .configurationDisplayName("Pixel-Auto & Sprit")
         .description("Dein Pixel-Auto und die günstigsten Tankstellen in der Nähe.")
-        .supportedFamilies([.accessoryRectangular, .systemSmall, .systemMedium])
+        .supportedFamilies([.accessoryRectangular, .accessoryCircular, .accessoryInline, .systemSmall, .systemMedium])
     }
 }
 
