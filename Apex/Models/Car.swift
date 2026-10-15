@@ -96,24 +96,15 @@ final class Car {
     }
 
     var sideImage: UIImage {
-        if let data = sideImageData, let image = UIImage(data: data) {
-            return image
-        }
-        return DefaultPixelCar.image
+        DecodedImages.image(sideImageData) ?? DefaultPixelCar.image
     }
 
     var frontImage: UIImage {
-        if let data = frontImageData, let image = UIImage(data: data) {
-            return image
-        }
-        return DefaultPixelCar.frontImage
+        DecodedImages.image(frontImageData) ?? DefaultPixelCar.frontImage
     }
 
     var navImage: UIImage {
-        if let data = navImageData, let image = UIImage(data: data) {
-            return image
-        }
-        return frontImage
+        DecodedImages.image(navImageData) ?? frontImage
     }
 
     /// kg per PS.
@@ -122,3 +113,20 @@ final class Car {
         return Double(weightKg) / Double(powerPS)
     }
 }
+
+/// The car images, decoded once per content. Lists, the live card and
+/// the navigation marker (redrawn up to 120 times a second) ask for them
+/// constantly; decoding the PNG every time cost real frame time.
+private enum DecodedImages {
+    nonisolated(unsafe) static let cache = NSCache<NSData, UIImage>()
+
+    static func image(_ data: Data?) -> UIImage? {
+        guard let data else { return nil }
+        let key = data as NSData
+        if let hit = cache.object(forKey: key) { return hit }
+        guard let image = UIImage(data: data) else { return nil }
+        cache.setObject(image, forKey: key)
+        return image
+    }
+}
+

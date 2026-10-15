@@ -66,11 +66,12 @@ struct FuelProvider: TimelineProvider {
             return cachedEntry(note: "Öffne Apex für deinen Standort")
         }
         do {
-            let stations = try await FuelAPI.stations(
+            let stations = try await FuelAPI.reachableStations(
                 near: coordinate,
                 radiusKm: SharedStore.fuelRadiusKm,
                 fuel: SharedStore.fuelType,
-                apiKey: SharedStore.apiKey
+                apiKey: SharedStore.apiKey,
+                maxRequests: 8
             )
             SharedStore.saveStations(stations)
             return cachedEntry(note: stations.isEmpty ? "Keine Tankstelle offen" : nil)
@@ -189,7 +190,7 @@ struct FuelWidgetView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 PriceText(price: cheapest.price, size: 30, weight: .heavy)
-                Text("\(Fmt1.km(cheapest.dist)) entfernt")
+                Text(cheapest.distanceText)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else {
@@ -220,18 +221,22 @@ struct FuelWidgetView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
+                    // Each row starts navigation to that station in Apex.
                     ForEach(entry.stations.prefix(3)) { station in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(station.displayName)
-                                    .font(.subheadline.weight(.semibold))
-                                    .lineLimit(1)
-                                Text(Fmt1.km(station.dist))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                        Link(destination: station.navigationURL) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(station.displayName)
+                                        .font(.subheadline.weight(.semibold))
+                                        .lineLimit(1)
+                                    Text(station.distanceText)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 4)
+                                PriceText(price: station.price, size: 18, weight: .heavy)
                             }
-                            Spacer(minLength: 4)
-                            PriceText(price: station.price, size: 18, weight: .heavy)
                         }
                     }
                 }
@@ -241,11 +246,6 @@ struct FuelWidgetView: View {
     }
 }
 
-private enum Fmt1 {
-    static func km(_ value: Double) -> String {
-        "\(value.formatted(.number.precision(.fractionLength(1)))) km"
-    }
-}
 
 struct WidgetBackground: View {
     @Environment(\.widgetFamily) private var family
@@ -268,11 +268,13 @@ struct ApexFuelWidget: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: FuelProvider()) { entry in
+            // Tapping the widget navigates to the cheapest station in Apex
+            // (the medium size has one link per station).
             FuelWidgetView(entry: entry)
                 .containerBackground(for: .widget) {
                     WidgetBackground()
                 }
-                .widgetURL(URL(string: "apex://garage"))
+                .widgetURL(entry.stations.first?.navigationURL ?? URL(string: "apex://garage"))
         }
         .configurationDisplayName("Pixel-Auto & Sprit")
         .description("Dein Pixel-Auto und die günstigsten Tankstellen in der Nähe.")

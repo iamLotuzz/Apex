@@ -130,6 +130,10 @@ final class LapTimer {
     @ObservationIgnored private var refIndex = 0
     @ObservationIgnored private var refKey: String?
     @ObservationIgnored private var filterState: (xy: Vec2, time: Date, velocity: Vec2)?
+    /// Direction of the first start-line crossing. Later crossings only count
+    /// in the same direction, so the widened line cannot catch a nearby
+    /// stretch driven the other way.
+    @ObservationIgnored private var startDirection: Double?
 
     var minimumLapTime: Double = 15
 
@@ -147,10 +151,32 @@ final class LapTimer {
         )
         let projection = LocalProjection(origin: center)
         self.projection = projection
-        startA = projection.point(track.startA.clCoordinate)
-        startB = projection.point(track.startB.clCoordinate)
-        finishA = projection.point((track.finishA ?? track.startA).clCoordinate)
-        finishB = projection.point((track.finishB ?? track.startB).clCoordinate)
+        let start = Self.widened(projection.point(track.startA.clCoordinate), projection.point(track.startB.clCoordinate))
+        startA = start.0
+        startB = start.1
+        let finish = Self.widened(
+            projection.point((track.finishA ?? track.startA).clCoordinate),
+            projection.point((track.finishB ?? track.startB).clCoordinate)
+        )
+        finishA = finish.0
+        finishB = finish.1
+    }
+
+    /// The line as drawn, made at least 50 m wide (plus 6 m each side), so a
+    /// fix a few metres off the road still crosses it and no lap is lost.
+    /// The crossing point and time stay exact: only the detection range grows.
+    private static func widened(_ a: Vec2, _ b: Vec2) -> (Vec2, Vec2) {
+        let d = b - a
+        let length = d.length
+        guard length > 0.5 else { return (a, b) }
+        let unit = d * (1 / length)
+        let extra = max(0, (50 - length) / 2) + 6
+        return (a - unit * extra, b + unit * extra)
+    }
+
+    /// Which way the car crossed a line (sign of the cross product).
+    private static func side(_ p1: Vec2, _ p2: Vec2, _ a: Vec2, _ b: Vec2) -> Double {
+        (p2 - p1).cross(b - a)
     }
 
     var bestLap: Lap? { laps.min { $0.duration < $1.duration } }
@@ -204,9 +230,10 @@ final class LapTimer {
         if let prev = previous, time > prev.time {
             switch track.kind {
             case .circuit:
-                if let f = LapMath.crossing(prev.xy, xy, startA, startB) {
+                if let f = LapMath.crossing(prev.xy, xy, startA, startB), sameDirection(prev.xy, xy, startA, startB) {
                     let crossing = interpolate(prev.point, point, prev.time, time, f)
                     if phase == .running, let lapStart, crossing.time.timeIntervalSince(lapStart) >= minimumLapTime {
+                        startDirection = Self.side(prev.xy, xy, startA, startB) >= 0 ? 1 : -1
                         completeLap(endTime: crossing.time, endPoint: crossing.point)
                         startLap(at: crossing.time, point: crossing.point)
                     } else if phase == .waitingForStart {
@@ -215,7 +242,7 @@ final class LapTimer {
                     }
                 }
             case .sprint:
-                if phase == .waitingForStart, let f = LapMath.crossing(prev.xy, xy, startA, startB) {
+                if phase == .waitingForStart, let f = LapMath.crossing(prev.xy, xy, startA, startB), sameDirection(prev.xy, xy, startA, startB) {
                     let crossing = interpolate(prev.point, point, prev.time, time, f)
                     startLap(at: crossing.time, point: crossing.point)
                     emit(.started)
@@ -240,6 +267,13 @@ final class LapTimer {
             }
         }
         previous = (xy, time, point)
+    }
+
+    /// Any direction counts until the first full lap; from then on only the
+    /// direction that lap was driven in.
+    private func sameDirection(_ p1: Vec2, _ p2: Vec2, _ a: Vec2, _ b: Vec2) -> Bool {
+        guard let known = startDirection else { return true }
+        return known == (Self.side(p1, p2, a, b) >= 0 ? 1 : -1)
     }
 
     // MARK: Laps
@@ -320,7 +354,16 @@ final class LapTimer {
         for i in 1..<current.count {
             distance += Geo.distance(current[i - 1].coordinate, current[i].coordinate)
         }
-        let maxSpeed = current.map(\.speed).max() ?? 0
+        // Top speed without single-fix Doppler spikes (see DriveAnalyzer).
+        var maxSpeed = 0.0
+        for i in current.indices {
+            var v = current[i].speed
+            if i > 0, i < current.count - 1 {
+                let neighbours = max(current[i - 1].speed, current[i + 1].speed)
+                if v - neighbours > 8 / 3.6 { v = neighbours }
+            }
+            maxSpeed = max(maxSpeed, v)
+        }
         let lap = Lap(
             number: laps.count + 1,
             duration: duration,

@@ -73,7 +73,7 @@ struct SettingsView: View {
                         Label("Kostenlosen API-Key holen", systemImage: "key.fill")
                     }
                     Stepper(value: $radius, in: 1...25, step: 1) {
-                        LabeledContent("Suchradius", value: "\(Int(radius)) km")
+                        LabeledContent("Max. Fahrweg", value: "\(Int(radius)) km")
                     }
                     LabeledContent("Kraftstoff", value: SharedStore.fuelType.title)
                     if !SharedStore.isGroupAvailable {

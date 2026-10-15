@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import MapKit
 
 @main
 struct ApexApp: App {
@@ -88,6 +89,15 @@ struct RootView: View {
         }
         .onOpenURL { url in
             switch url.host() {
+            case "navigate":
+                // Widget tap on a fuel station: route there in Apex.
+                let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                let value: (String) -> String? = { name in items.first(where: { $0.name == name })?.value }
+                guard let lat = value("lat").flatMap(Double.init), let lng = value("lng").flatMap(Double.init) else { return }
+                let item = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng)))
+                item.name = value("name") ?? "Tankstelle"
+                tab = .navigate
+                Task { await NavigationService.shared.navigate(to: item) }
             case "garage": tab = .garage
             case "tracks": tab = .tracks
             default: tab = .drives

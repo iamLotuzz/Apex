@@ -17,7 +17,9 @@ final class MapSnapshotCache {
         return dir
     }
 
-    func snapshot(id: UUID, coordinates: [CLLocationCoordinate2D], size: CGSize, dark: Bool) async -> UIImage? {
+    /// `coordinates` is only called when no cached image exists, so list rows
+    /// do not load a drive's whole GPS track just to show a thumbnail.
+    func snapshot(id: UUID, coordinates loadCoordinates: () -> [CLLocationCoordinate2D], size: CGSize, dark: Bool) async -> UIImage? {
         let key = "\(id.uuidString)-\(dark ? "d" : "l")-\(Int(size.width))x\(Int(size.height))"
         if let cached = memory.object(forKey: key as NSString) { return cached }
         let url = directory.appendingPathComponent(key + ".png")
@@ -27,6 +29,7 @@ final class MapSnapshotCache {
             return image
         }
         if let task = inFlight[key] { return await task.value }
+        let coordinates = Geo.downsample(loadCoordinates(), maxCount: 600)
         guard coordinates.count >= 2 else { return nil }
 
         let task = Task { await Self.render(coordinates: coordinates, size: size, dark: dark, scale: scale) }

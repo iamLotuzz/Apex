@@ -7,7 +7,10 @@ struct LiveDriveView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var position: MapCameraPosition = .userLocation(followsHeading: true, fallback: .automatic)
     private var location: LocationService { .shared }
-    private var car: Car? { Persistence.activeCar() }
+    // Looked up once: the card redraws every second, and a database fetch
+    // plus image decode each time is wasted work.
+    @State private var carImage: UIImage = DefaultPixelCar.frontImage
+    @State private var carName = "Mein Auto"
 
     var body: some View {
         NavigationStack {
@@ -15,7 +18,8 @@ struct LiveDriveView: View {
                 Map(position: $position) {
                     UserAnnotation()
                     if location.livePoints.count >= 2 {
-                        MapPolyline(coordinates: location.livePoints.map(\.coordinate))
+                        // At most 1500 points: a long drive stays smooth to draw.
+                        MapPolyline(coordinates: Geo.downsample(location.livePoints, maxCount: 1500).map(\.coordinate))
                             .stroke(.blue, style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
                     }
                 }
@@ -29,6 +33,12 @@ struct LiveDriveView: View {
                 card
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
+            }
+            .task {
+                if let car = Persistence.activeCar() {
+                    carImage = car.frontImage
+                    carName = car.displayName
+                }
             }
             .navigationTitle(location.isRecording ? "Fahrt läuft" : "Keine aktive Fahrt")
             .navigationBarTitleDisplayMode(.inline)
@@ -49,10 +59,10 @@ struct LiveDriveView: View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 12) {
-                    PixelImage(image: car?.frontImage ?? DefaultPixelCar.frontImage)
+                    PixelImage(image: carImage)
                         .frame(width: 40, height: 24)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(car?.displayName ?? "Mein Auto")
+                        Text(carName)
                             .font(.headline)
                         if location.isRecording, let start = location.driveStart {
                             Text("Unterwegs seit \(Fmt.time(start))")

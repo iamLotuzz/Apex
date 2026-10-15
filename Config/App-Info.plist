@@ -43,6 +43,8 @@
 	<string>Mit „Immer“ startet Apex Fahrten automatisch im Hintergrund, sobald du schneller als die eingestellte Geschwindigkeit fährst.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Apex erkennt über die Bewegungsdaten, wann du im Auto sitzt, damit Fahrten schneller und akkuschonend starten.</string>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

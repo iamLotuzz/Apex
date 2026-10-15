@@ -71,6 +71,16 @@ final class LocationService: NSObject {
     @ObservationIgnored private var launchArmed = false
     @ObservationIgnored private var launchCandidate: Double?
     @ObservationIgnored private var launchSamples = 0
+    /// Detected but not yet confirmed: a jolt while standing (door, phone
+    /// touched) must not count. It becomes a launch when the GPS then shows
+    /// the car moving within 3 s, and is dropped when it still stands.
+    @ObservationIgnored private var pendingLaunch: Double?
+
+    // Barometer: relative height to ±0.1 m instead of GPS altitude (±10 m),
+    // so climbs and descents are counted correctly.
+    private let altimeter = CMAltimeter()
+    @ObservationIgnored private var relativeAltitude: Double?
+    @ObservationIgnored private var altitudeAnchor: Double?
 
     /// Fixes at or above this speed count as "moving" while recording (8 km/h).
     private let movingSpeed = 2.2
@@ -396,14 +406,26 @@ final class LocationService: NSObject {
         if speed >= movingSpeed {
             lastMovingDate = Date()
         }
+        let fixTime = location.timestamp.timeIntervalSinceReferenceDate
         if speed < 0.6 && location.speed >= 0 {
-            // Standing still: the next real acceleration is a launch.
-            launchArmed = true
+            // Standing still: the next real acceleration is a launch. A jolt
+            // detected before this fix was not one.
+            if let pending = pendingLaunch, pending < fixTime - 0.3 { pendingLaunch = nil }
+            launchArmed = pendingLaunch == nil
+        } else if let pending = pendingLaunch, speed >= 1.5 {
+            if fixTime - pending <= 3 { launches.append(pending) }
+            pendingLaunch = nil
         }
         guard let cleaned = driveFilter.process(location) else { return }
         var point = DrivePoint(location: location, speed: speed)
         point.lat = cleaned.latitude
         point.lon = cleaned.longitude
+        if let relative = relativeAltitude {
+            if altitudeAnchor == nil, location.verticalAccuracy > 0, location.verticalAccuracy < 15 {
+                altitudeAnchor = location.altitude - relative
+            }
+            if let anchor = altitudeAnchor { point.alt = anchor + relative }
+        }
         if let last = livePoints.last {
             let dt = point.t - last.t
             guard dt >= 0.5 else { return }
@@ -594,6 +616,7 @@ final class LocationService: NSObject {
     /// acceleration then rises above ~0.06 g for 80 ms, that moment is a launch.
     /// The GPS alone only knows the launch to within one second.
     private func startLaunchDetection() {
+        startAltimeter()
         guard motionSensors.isDeviceMotionAvailable, !motionSensors.isDeviceMotionActive else { return }
         motionSensors.deviceMotionUpdateInterval = 1.0 / 50
         let bootOffset = Date().timeIntervalSinceReferenceDate - ProcessInfo.processInfo.systemUptime
@@ -614,6 +637,23 @@ final class LocationService: NSObject {
         }
         launchArmed = false
         launchCandidate = nil
+        pendingLaunch = nil
+        altimeter.stopRelativeAltitudeUpdates()
+        relativeAltitude = nil
+        altitudeAnchor = nil
+    }
+
+    private func startAltimeter() {
+        guard CMAltimeter.isRelativeAltitudeAvailable() else { return }
+        relativeAltitude = nil
+        altitudeAnchor = nil
+        altimeter.startRelativeAltitudeUpdates(to: .main) { [weak self] data, _ in
+            guard let data else { return }
+            let meters = data.relativeAltitude.doubleValue
+            MainActor.assumeIsolated {
+                self?.relativeAltitude = meters
+            }
+        }
     }
 
     private func handleAcceleration(_ g: Double, at time: Double) {
@@ -625,7 +665,7 @@ final class LocationService: NSObject {
             }
             launchSamples += 1
             if launchSamples >= 4, let candidate = launchCandidate {
-                launches.append(candidate)
+                pendingLaunch = candidate
                 launchArmed = false
                 launchCandidate = nil
             }

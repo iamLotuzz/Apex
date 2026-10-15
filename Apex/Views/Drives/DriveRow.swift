@@ -8,7 +8,7 @@ struct DriveRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            RouteThumbnail(id: drive.id, pointsData: drive.pointsData)
+            RouteThumbnail(drive: drive)
                 .frame(width: 72, height: 72)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -62,9 +62,10 @@ struct RouteThumbnail: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var image: UIImage?
 
-    init(id: UUID, pointsData: Data) {
-        self.id = id
-        self.loadCoordinates = { DrivePoint.decode(pointsData).map(\.coordinate) }
+    init(drive: Drive) {
+        self.id = drive.id
+        // The points blob is read from disk only if no thumbnail is cached.
+        self.loadCoordinates = { DrivePoint.decode(drive.pointsData).map(\.coordinate) }
     }
 
     init(id: UUID, coordinates: [CLLocationCoordinate2D]) {
@@ -87,9 +88,8 @@ struct RouteThumbnail: View {
                 }
             }
             .task(id: colorScheme) {
-                let coords = loadCoordinates()
                 let size = CGSize(width: max(proxy.size.width, 1), height: max(proxy.size.height, 1))
-                let result = await MapSnapshotCache.shared.snapshot(id: id, coordinates: coords, size: size, dark: colorScheme == .dark)
+                let result = await MapSnapshotCache.shared.snapshot(id: id, coordinates: loadCoordinates, size: size, dark: colorScheme == .dark)
                 withAnimation(.easeOut(duration: 0.2)) { image = result }
             }
         }

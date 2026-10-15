@@ -40,6 +40,23 @@ struct FuelStation: Codable, Identifiable, Hashable {
     var dist: Double
     var price: Double
     var isOpen: Bool
+    /// Driving distance by road in km (nil until routed).
+    var roadKm: Double? = nil
+    /// Driving time in seconds (nil until routed).
+    var driveSeconds: Double? = nil
+
+    /// Road distance when known, otherwise the straight-line distance.
+    var shownKm: Double { roadKm ?? dist }
+
+    /// "3,4 km · 6 Min." by road, or "≈ 2,1 km" straight-line.
+    var distanceText: String {
+        let km = shownKm.formatted(.number.precision(.fractionLength(1)))
+        guard roadKm != nil else { return "≈ \(km) km" }
+        if let seconds = driveSeconds {
+            return "\(km) km · \(max(1, Int((seconds / 60).rounded()))) Min."
+        }
+        return "\(km) km"
+    }
 
     var displayName: String {
         let trimmed = brand.trimmingCharacters(in: .whitespaces)
@@ -53,6 +70,19 @@ struct FuelStation: Codable, Identifiable, Hashable {
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: lat, longitude: lng)
+    }
+
+    /// Opens Apex and starts navigation to this station.
+    var navigationURL: URL {
+        var components = URLComponents()
+        components.scheme = "apex"
+        components.host = "navigate"
+        components.queryItems = [
+            URLQueryItem(name: "lat", value: String(lat)),
+            URLQueryItem(name: "lng", value: String(lng)),
+            URLQueryItem(name: "name", value: displayName)
+        ]
+        return components.url ?? URL(string: "apex://garage")!
     }
 }
 

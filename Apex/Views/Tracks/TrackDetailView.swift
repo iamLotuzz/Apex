@@ -28,10 +28,9 @@ struct TrackDetailView: View {
         sessions.filter { $0.bestLapTime != nil }.min { ($0.bestLapTime ?? .infinity) < ($1.bestLapTime ?? .infinity) }
     }
 
-    /// Fastest lap ever driven here; the first lap of a new session is compared with it.
-    private var storedBestLap: Lap? {
-        bestSession?.laps.min { $0.duration < $1.duration }
-    }
+    /// Fastest lap ever driven here; the first lap of a new session is
+    /// compared with it. Decoded once per best session, not on every redraw.
+    @State private var storedBestLap: Lap?
 
     var body: some View {
         ScrollView {
@@ -103,6 +102,9 @@ struct TrackDetailView: View {
         }
         .navigationTitle(track.name)
         .navigationBarTitleDisplayMode(.large)
+        .task(id: "\(bestSession?.id.uuidString ?? "-")/\(bestSession?.bestLapTime ?? 0)") {
+            storedBestLap = bestSession?.laps.min { $0.duration < $1.duration }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -206,6 +208,7 @@ struct TrackMap: View {
     var lap: Lap?
 
     @State private var position: MapCameraPosition
+    @State private var segments: [SpeedSegment] = []
 
     init(track: Track, lap: Lap?) {
         self.track = track
@@ -218,11 +221,9 @@ struct TrackMap: View {
 
     var body: some View {
         Map(position: $position) {
-            if let lap {
-                ForEach(RouteBuilder.segments(lap.points)) { segment in
-                    MapPolyline(coordinates: segment.coordinates)
-                        .stroke(segment.color, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                }
+            ForEach(segments) { segment in
+                MapPolyline(coordinates: segment.coordinates)
+                    .stroke(segment.color, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
             }
             MapPolyline(coordinates: [track.startA.clCoordinate, track.startB.clCoordinate])
                 .stroke(.white, style: StrokeStyle(lineWidth: 6, dash: [5, 5]))
@@ -233,5 +234,9 @@ struct TrackMap: View {
             UserAnnotation()
         }
         .mapStyle(.hybrid(elevation: .realistic))
+        // Colour segments are built once per lap, not on every redraw.
+        .task(id: lap?.duration) {
+            segments = lap.map { RouteBuilder.segments($0.points) } ?? []
+        }
     }
 }

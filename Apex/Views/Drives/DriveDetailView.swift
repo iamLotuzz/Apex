@@ -59,7 +59,14 @@ struct DriveDetailView: View {
             guard stats == nil else { return }
             let loaded = drive.points
             points = loaded
-            stats = DriveAnalyzer.analyze(loaded, launches: drive.launches)
+            let analyzed = DriveAnalyzer.analyze(loaded, launches: drive.launches)
+            stats = analyzed
+            // Older drives were summarised with the previous analysis (e.g.
+            // a Doppler spike as top speed): bring the list values up to date.
+            if abs(drive.maxSpeed - analyzed.maxSpeed) > 0.05 || abs(drive.distance - analyzed.distance) > 1 {
+                drive.applySummary(analyzed)
+                try? context.save()
+            }
             gpxURL = GPXExporter.export(name: drive.displayTitle, points: loaded)
         }
         .alert("Fahrt umbenennen", isPresented: $showRename) {
@@ -77,7 +84,7 @@ struct DriveDetailView: View {
         }
         .fullScreenCover(isPresented: $showFullMap) {
             NavigationStack {
-                DriveMap(points: points, topSpeedIndex: stats?.maxSpeedIndex)
+                DriveMap(points: points, topSpeedIndex: stats?.maxSpeedIndex, topSpeed: stats?.maxSpeed)
                     .ignoresSafeArea(edges: .bottom)
                     .navigationTitle(drive.displayTitle)
                     .navigationBarTitleDisplayMode(.inline)
@@ -95,7 +102,7 @@ struct DriveDetailView: View {
     private var mapHeader: some View {
         ZStack(alignment: .bottom) {
             if points.count >= 2 {
-                DriveMap(points: points, topSpeedIndex: stats?.maxSpeedIndex, interactive: false)
+                DriveMap(points: points, topSpeedIndex: stats?.maxSpeedIndex, topSpeed: stats?.maxSpeed, interactive: false)
                     .onTapGesture { showFullMap = true }
             } else {
                 Rectangle().fill(.quaternary)

@@ -76,7 +76,7 @@ struct CheapestFuelIntent: AppIntent {
             return .result(dialog: "Ich kenne deinen Standort noch nicht. Öffne Apex einmal.")
         }
         var stations = SharedStore.cachedStations
-        if let fresh = try? await FuelAPI.stations(
+        if let fresh = try? await FuelAPI.reachableStations(
             near: coordinate,
             radiusKm: SharedStore.fuelRadiusKm,
             fuel: fuel,
@@ -89,8 +89,9 @@ struct CheapestFuelIntent: AppIntent {
             return .result(dialog: "Im Umkreis hat gerade keine Tankstelle geöffnet.")
         }
         let price = station.price.formatted(.number.precision(.fractionLength(3)))
-        let distance = Fmt.distance(station.dist * 1000)
-        let text = "\(station.displayName), \(station.address): \(price) Euro für \(fuel.title), \(distance) entfernt."
+        let distance = Fmt.distance(station.shownKm * 1000)
+        let way = station.roadKm != nil ? "mit dem Auto" : "Luftlinie"
+        let text = "\(station.displayName), \(station.address): \(price) Euro für \(fuel.title), \(distance) \(way)."
         return .result(dialog: "\(text)")
     }
 }

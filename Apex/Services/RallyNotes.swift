@@ -14,11 +14,24 @@ struct RallyNote: Identifiable, Equatable {
     let direction: Int
     let grade: Int
     let long: Bool
+    /// The corner is a turn at a junction that the directions also announce.
+    var atManeuver = false
 
+    /// Shown on screen: "Rechts 4 lang", "Haarnadel links".
+    var display: String {
+        let side = direction < 0 ? "Links" : "Rechts"
+        if grade == 0 { return "Haarnadel \(side.lowercased())" }
+        return long ? "\(side) \(grade) lang" : "\(side) \(grade)"
+    }
+
+    /// Spoken with number words, so every voice says "Rechts vier" and not
+    /// "Rechts vierte" or a spelled digit.
     var spoken: String {
         let side = direction < 0 ? "Links" : "Rechts"
-        let grade = self.grade == 0 ? "Haarnadel" : String(self.grade)
-        return long ? "\(side) \(grade) lang" : "\(side) \(grade)"
+        if grade == 0 { return "Haarnadel \(side.lowercased())" }
+        let words = ["null", "eins", "zwei", "drei", "vier", "fünf", "sechs"]
+        let number = words.indices.contains(grade) ? words[grade] : String(grade)
+        return long ? "\(side) \(number) lang" : "\(side) \(number)"
     }
 
     var short: String {
@@ -36,7 +49,8 @@ struct RallyNote: Identifiable, Equatable {
 /// The route is resampled every 10 m. A corner is a run of samples that all
 /// turn the same way faster than ~2.5° per 10 m (a radius under ~230 m).
 /// Its radius (length / angle) gives the grade. Corners within 50 m of a
-/// turn instruction are left to the normal directions.
+/// turn instruction are kept as well (marked `atManeuver`), so the pace
+/// notes never go quiet; they are called after the direction there.
 enum RallyNoteBuilder {
     static func notes(coordinates: [CLLocationCoordinate2D], cumulative: [Double], maneuvers: [Double]) -> [RallyNote] {
         guard coordinates.count >= 2, let total = cumulative.last, total > 50 else { return [] }
@@ -109,14 +123,14 @@ enum RallyNoteBuilder {
             default: grade = 6
             }
             let along = Double(start) * step
-            if maneuvers.contains(where: { abs($0 - along) < 50 }) { continue }
             notes.append(RallyNote(
                 id: notes.count,
                 along: along,
                 end: along + length,
                 direction: sign < 0 ? -1 : 1,
                 grade: grade,
-                long: degrees > 120 && length > 80
+                long: degrees > 120 && length > 80,
+                atManeuver: maneuvers.contains { abs($0 - along) < 50 }
             ))
         }
         return notes

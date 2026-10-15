@@ -130,8 +130,13 @@ enum DriveAnalyzer {
             }
         }
 
-        for (i, p) in points.enumerated() where p.accuracy <= 35 && p.speed > s.maxSpeed {
-            s.maxSpeed = p.speed
+        // Top speed from the Doppler speed, which is accurate to ~0.2 km/h,
+        // but without single-fix spikes (multipath near buildings): a fix
+        // more than 8 km/h above both neighbours cannot be real, because no
+        // car gains and loses that much within two seconds.
+        let robust = spikeFreeSpeeds(points)
+        for (i, p) in points.enumerated() where p.accuracy <= 35 && robust[i] > s.maxSpeed {
+            s.maxSpeed = robust[i]
             s.maxSpeedIndex = i
         }
         if s.maxSpeedIndex == nil, let maxSmoothed = speeds.max() {
@@ -154,8 +159,9 @@ enum DriveAnalyzer {
         }
 
         applyElevation(points, to: &s)
-        // Sprint times use the raw Doppler speeds: smoothing would blur the launch.
-        let raw = rawSpeeds(points)
+        // Sprint times use the Doppler speeds without smoothing (it would blur
+        // the launch), but without spikes, which would fake a quick sprint.
+        let raw = robust
         s.zeroTo50 = sprint(points, speeds: raw, from: 0, to: 50, launches: launches)
         s.zeroTo100 = sprint(points, speeds: raw, from: 0, to: 100, launches: launches)
         s.eightyTo120 = sprint(points, speeds: raw, from: 80, to: 120, launches: launches)
@@ -178,9 +184,23 @@ enum DriveAnalyzer {
         return raw
     }
 
+    /// Doppler speeds with isolated spikes replaced by the higher neighbour.
+    static func spikeFreeSpeeds(_ points: [DrivePoint]) -> [Double] {
+        var v = rawSpeeds(points)
+        guard v.count >= 3 else { return v }
+        let original = v
+        for i in 1..<(v.count - 1) {
+            let neighbours = max(original[i - 1], original[i + 1])
+            if original[i] - neighbours > 8 / 3.6 && points[i + 1].t - points[i - 1].t <= 4 {
+                v[i] = neighbours
+            }
+        }
+        return v
+    }
+
     /// Speed per point with a 3-point moving average.
     static func smoothedSpeeds(_ points: [DrivePoint]) -> [Double] {
-        let raw = rawSpeeds(points)
+        let raw = spikeFreeSpeeds(points)
         guard raw.count >= 3 else { return raw }
         var smooth = raw
         for i in 1..<(raw.count - 1) {

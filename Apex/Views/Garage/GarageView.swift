@@ -331,7 +331,7 @@ struct GarageView: View {
         defer { loadingFuel = false }
         let fuel = activeCar?.fuelType ?? SharedStore.fuelType
         do {
-            let result = try await FuelAPI.stations(
+            let result = try await FuelAPI.reachableStations(
                 near: coordinate,
                 radiusKm: SharedStore.fuelRadiusKm,
                 fuel: fuel,

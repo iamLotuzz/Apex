@@ -54,12 +54,15 @@ struct RouteDot: View {
 struct DriveMap: View {
     let points: [DrivePoint]
     var topSpeedIndex: Int?
+    /// Spike-free top speed from the analysis; the raw fix can be off.
+    var topSpeed: Double?
     var interactive = true
 
     @State private var position: MapCameraPosition
     private let segments: [SpeedSegment]
 
-    init(points: [DrivePoint], topSpeedIndex: Int? = nil, interactive: Bool = true) {
+    init(points: [DrivePoint], topSpeedIndex: Int? = nil, topSpeed: Double? = nil, interactive: Bool = true) {
+        self.topSpeed = topSpeed
         self.points = points
         self.topSpeedIndex = topSpeedIndex
         self.interactive = interactive
@@ -85,7 +88,7 @@ struct DriveMap: View {
                 }
             }
             if let index = topSpeedIndex, points.indices.contains(index) {
-                Annotation(Fmt.kmh(points[index].speed), coordinate: points[index].coordinate, anchor: .bottom) {
+                Annotation(Fmt.kmh(topSpeed ?? points[index].speed), coordinate: points[index].coordinate, anchor: .bottom) {
                     Image(systemName: "bolt.fill")
                         .font(.caption.bold())
                         .foregroundStyle(.white)
